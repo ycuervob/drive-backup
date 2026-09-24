@@ -1,0 +1,14 @@
+# Archivos propios de cada servidor (contienen credenciales o ajustes locales)
+config.env
+config.*.env
+!config.env.example
+db.sh
+files.sh
+.rclone.conf
+*.json
+
+# Salidas locales
+test-output/
+restore/
+*.log
+*.part
