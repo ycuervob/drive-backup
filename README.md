@@ -6,17 +6,18 @@ Se clona en cada servidor, se llena `config.env` y se escriben **tus propios com
 
 ```
 drive-backup/
-├── backup.sh                 # Orquestador: ejecuta db.sh + files.sh, sube, verifica, limpia
-├── restore.sh                # Lista y descarga backups desde Drive
-├── setup.sh                  # Instalación: dependencias, archivos locales y cron
-├── config.env.example        # Configuración: Drive, retención, notificaciones y tus variables
-├── lib/common.sh             # Funciones compartidas (logs, config, conexión con Drive)
-└── templates/
-    ├── db.sh.example         # Plantilla libre + ejemplos (mysqldump, docker, _data, pg_dump)
-    └── files.sh.example      # Plantilla libre + ejemplos (cp, zip -r, tar)
+├── backup.sh              # Orquestador: ejecuta db.sh + files.sh, sube, verifica, limpia
+├── restore.sh             # Lista y descarga backups desde Drive
+├── setup.sh               # Instalación: copia las plantillas y programa el cron
+├── lib/common.sh          # Funciones compartidas (logs, config, conexión con Drive)
+│
+├── config.env.example  →  config.env   # Drive, retención, notificaciones y tus variables
+├── db.sh.example       →  db.sh        # Tus comandos de base de datos (con ejemplos)
+└── files.sh.example    →  files.sh     # Tus comandos de archivos (con ejemplos)
 
-# Archivos que crea setup.sh en cada servidor (ignorados por git):
-config.env   db.sh   files.sh   .rclone.conf
+# Cada .example se copia a su lado sin la extensión (setup.sh lo hace, o a mano):
+#   cp config.env.example config.env && cp db.sh.example db.sh && cp files.sh.example files.sh
+# Los archivos reales no se suben a git.
 ```
 
 Como `config.env`, `db.sh` y `files.sh` no se versionan, un `git pull` actualiza el orquestador sin pisar lo que ajustaste en cada servidor.

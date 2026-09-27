@@ -63,8 +63,8 @@ copy_if_missing() {
   fi
 }
 copy_if_missing "$DIR/config.env.example"           "$DIR/config.env" 600
-copy_if_missing "$DIR/templates/db.sh.example"      "$DIR/db.sh"      700
-copy_if_missing "$DIR/templates/files.sh.example"   "$DIR/files.sh"   700
+copy_if_missing "$DIR/db.sh.example" "$DIR/db.sh"      700
+copy_if_missing "$DIR/files.sh.example" "$DIR/files.sh"   700
 chmod 600 "$DIR/config.env"
 chmod +x "$DIR/backup.sh" "$DIR/restore.sh" "$DIR/setup.sh" "$DIR/db.sh" "$DIR/files.sh"
 ok "Permisos ajustados (config.env = 600)"

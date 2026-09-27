@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  drive-backup · files.sh  (PLANTILLA LIBRE)
+#
+#  Aquí escribes TUS comandos para respaldar los archivos de ESTE servidor.
+#  No hay nada fijo: cp, zip, tar, rsync... lo que necesites. La única regla:
+#
+#      Todo lo que dejes dentro de  $OUT  se sube a Drive.
+#      (archivos o carpetas, comprimidos o no)
+#
+#  - Si un comando falla, el script se detiene y backup.sh NO sube nada.
+#  - Las variables de config.env están disponibles.
+#  - Para probarlo solo:  ./files.sh     (deja todo en ./test-output/files)
+#
+#  Abajo hay ejemplos comentados. Descomenta el que se parezca a tu caso,
+#  ajústalo y borra el resto.
+# =============================================================================
+set -Eeo pipefail
+source "$(dirname "$(readlink -f "$0")")/lib/common.sh"
+load_config
+LOG_TAG="files"
+
+OUT="${FILES_OUT_DIR:-$DRIVE_BACKUP_HOME/test-output/files}"   # <- deja aquí tus backups
+STAMP="${RUN_ID:-$(date +%F_%H%M%S)}"                           # fecha para nombrar archivos
+mkdir -p "$OUT"
+
+# =============================================================================
+#  TUS COMANDOS AQUÍ
+# =============================================================================
+
+log_info "Edita files.sh con los comandos de este servidor"
+exit 1   # <- borra esta línea cuando hayas puesto tus comandos
+
+
+# -----------------------------------------------------------------------------
+# Ejemplo 1 · copiar la carpeta y subirla tal cual (sin comprimir)
+# -----------------------------------------------------------------------------
+# cp -a /var/www/html "$OUT/html"
+
+# -----------------------------------------------------------------------------
+# Ejemplo 2 · copiar y luego comprimir
+# -----------------------------------------------------------------------------
+# cp -a /srv/datos "$OUT/datos"
+# tar -czf "$OUT/datos_$STAMP.tar.gz" -C "$OUT" datos && rm -rf "$OUT/datos"
+
+# -----------------------------------------------------------------------------
+# Ejemplo 3 · zip -r
+# -----------------------------------------------------------------------------
+# (cd /var/www && zip -qr "$OUT/sitio_$STAMP.zip" html -x "*/cache/*" "*.log")
+
+# -----------------------------------------------------------------------------
+# Ejemplo 4 · tar directo
+# -----------------------------------------------------------------------------
+# tar -czf "$OUT/uploads_$STAMP.tar.gz" -C /var/www/html/wp-content uploads \
+#   --exclude='*/cache/*'
+
+# -----------------------------------------------------------------------------
+# Ejemplo 5 · varias carpetas
+# -----------------------------------------------------------------------------
+# for dir in /etc/nginx /opt/app/config /home/usuario/scripts; do
+#   name="$(echo "${dir#/}" | tr / _)"
+#   tar -czf "$OUT/${name}_$STAMP.tar.gz" -C / "${dir#/}"
+#   log_info "OK $dir"
+# done
+
+log_info "Listo: $(du -sh "$OUT" | cut -f1) en $OUT"

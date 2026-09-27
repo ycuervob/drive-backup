@@ -169,7 +169,7 @@ FAILED_STEPS=()
 run_step() {
   local name="$1" script="$SCRIPT_DIR/$1.sh"
   if [[ ! -f "$script" ]]; then
-    log_error "No existe $script. Ejecuta ./setup.sh para crearlo desde templates/$name.sh.example"
+    log_error "No existe $script. Ejecuta ./setup.sh para crearlo desde $name.sh.example (cp $name.sh.example $name.sh)"
     FAILED_STEPS+=("$name"); SUMMARY+=("$name: NO EXISTE"); return 0
   fi
   log_info "---- Ejecutando $name.sh ----"
