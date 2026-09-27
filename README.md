@@ -24,27 +24,44 @@ Como `config.env`, `db.sh` y `files.sh` no se versionan, un `git pull` actualiza
 
 ## Flujo
 
+Sin importar cuántas cosas generen `db.sh` y `files.sh`, **a Drive sube un solo archivo por backup, con una sola fecha**.
+
 ```
 backup.sh
- ├─ 1. db.sh     → $BACKUP_DIR/<fecha>/db/*
- ├─ 2. files.sh  → $BACKUP_DIR/<fecha>/files/*
- ├─ 3. SHA256SUMS + MANIFEST.txt
- ├─ 4. rclone copy → Drive:<DRIVE_PATH>/<SERVER_NAME>/<fecha>/   (+ rclone check)
- ├─ 5. Retención: borra en Drive lo más viejo que REMOTE_RETENTION_DAYS
- │                y en local lo más viejo que LOCAL_RETENTION_DAYS
- └─ 6. Notificación (webhook / correo) y subida del log
+ ├─ 1. db.sh     → deja lo suyo en $OUT   (carpeta temporal db/)
+ ├─ 2. files.sh  → deja lo suyo en $OUT   (carpeta temporal files/)
+ ├─ 3. Empaqueta todo en UN archivo:  BackUp_<servidor>_<AAAA-MM-DD_HHMMSS>.zip
+ │       ├── db/...
+ │       ├── files/...
+ │       └── MANIFEST.txt
+ ├─ 4. Sube ese archivo → Drive:<DRIVE_PATH>/<SERVER_NAME>/   (y compara el md5)
+ ├─ 5. Retención: borra en Drive y en local los BackUp_* más viejos que N días
+ └─ 6. Notificación (webhook / correo)
 ```
+
+Resultado en Drive:
+
+```
+Backups/
+└── serv_fac_ciencias/
+    ├── BackUp_serv_fac_ciencias_2026-09-26_020000.zip
+    └── BackUp_serv_fac_ciencias_2026-09-27_020000.zip
+```
+
+- `ARCHIVE_FORMAT` elige el formato del archivo final: `zip` (por defecto) o `tar.gz`.
+- `ARCHIVE_PREFIX` cambia el prefijo del nombre (`BackUp` por defecto).
+- La carpeta temporal se borra siempre. En local solo queda el archivo final, en `BACKUP_DIR`.
 
 Medidas de seguridad:
 
 - Si `db.sh` o `files.sh` fallan, **no se sube nada**. Se puede cambiar con `UPLOAD_ON_PARTIAL_FAILURE`.
 - Si la subida o la verificación fallan, **no se borra nada**, ni en Drive ni en local.
 - Un lock (`flock`) impide que dos ejecuciones corran al mismo tiempo.
-- En Drive solo se borran carpetas con nombre de backup (`AAAA-MM-DD_HHMMSS`). Si hay otras carpetas, no se tocan.
+- La retención solo borra archivos `BackUp_<servidor>_<fecha>`. Si hay otros archivos en la carpeta, no se tocan.
 
 ## Instalación en un servidor
 
-Requisitos: Linux, bash ≥ 4.4, `sha256sum` y rclone, más las herramientas que usen tus scripts (`zip`, `docker`, `mysqldump`...). `setup.sh` puede instalar rclone.
+Requisitos: Linux, bash ≥ 4.4, `zip` (o `tar` si usas `ARCHIVE_FORMAT=tar.gz`) y rclone, más las herramientas que usen tus scripts (`zip`, `docker`, `mysqldump`...). `setup.sh` puede instalar rclone.
 
 ```bash
 git clone https://github.com/<tu-usuario>/drive-backup.git /opt/drive-backup
@@ -109,22 +126,22 @@ sudo ./setup.sh --cron "0 2 * * *"   # todos los días a las 2:00 a.m. (crontab 
 sudo ./setup.sh --remove-cron        # quitarlo
 ```
 
-Los logs quedan en `LOG_DIR`, uno por ejecución, y además se suben junto a cada backup como `backup.log`.
+Los logs quedan en `LOG_DIR`, uno por ejecución. No se suben a Drive, para que allá quede solo el archivo del backup.
 
 ## Escribir db.sh y files.sh
 
 Son scripts de bash **libres**. Solo hay una regla:
 
-> **Todo lo que dejes dentro de `$OUT` se sube a Drive.** Puede ser un archivo comprimido, varios o una carpeta tal cual.
+> **Todo lo que dejes dentro de `$OUT` entra al backup.** Puede ser un archivo comprimido, varios o una carpeta tal cual. Al final `backup.sh` lo junta todo en un solo archivo con fecha, así que aquí no necesitas poner fechas en los nombres.
 
 Ejemplos:
 
 ```bash
 # Servidor A: mysqldump directo
-MYSQL_PWD="$DB_PASSWORD" mysqldump -u root --all-databases | gzip > "$OUT/mysql_$STAMP.sql.gz"
+MYSQL_PWD="$DB_PASSWORD" mysqldump -u root --all-databases | gzip > "$OUT/mysql.sql.gz"
 
 # Servidor B: mysqldump dentro de Docker
-docker exec -e MYSQL_PWD="$DB_PASSWORD" mysql_prod mysqldump -u root --all-databases | gzip > "$OUT/mysql_$STAMP.sql.gz"
+docker exec -e MYSQL_PWD="$DB_PASSWORD" mysql_prod mysqldump -u root --all-databases | gzip > "$OUT/mysql.sql.gz"
 
 # Servidor C: copiar la carpeta _data de Postgres (deteniendo el contenedor)
 docker stop pg; trap 'docker start pg' EXIT
@@ -136,16 +153,15 @@ cp -a /var/lib/docker/volumes/pg_data/_data "$OUT/postgres_data"
 cp -a /var/www/html "$OUT/html"
 
 # files.sh: zip
-(cd /var/www && zip -qr "$OUT/sitio_$STAMP.zip" html)
+(cd /var/www && zip -qr "$OUT/sitio.zip" html)
 
 # files.sh: tar
-tar -czf "$OUT/uploads_$STAMP.tar.gz" -C /var/www/html/wp-content uploads
+tar -czf "$OUT/uploads.tar.gz" -C /var/www/html/wp-content uploads
 ```
 
 Detalles:
 
 - Las variables de `config.env` están disponibles. Pon ahí las contraseñas, los nombres de contenedores o las rutas, y úsalas como `$VARIABLE`. Así las credenciales quedan en un solo archivo protegido.
-- `$STAMP` trae la fecha del backup para usarla en los nombres de archivo.
 - Si **cualquier comando falla**, el script se detiene y `backup.sh` no sube nada.
 - Las plantillas traen un `exit 1` al principio para que no se suba un backup vacío por accidente. Bórralo cuando pongas tus comandos.
 - Si un servidor no tiene base de datos (o no tiene archivos), pon `ENABLE_DB=false` (o `ENABLE_FILES=false`) en `config.env`.
@@ -156,11 +172,11 @@ Detalles:
 ```bash
 ./restore.sh list                          # backups de este servidor en Drive
 ./restore.sh list otro-servidor            # backups de otro servidor
-./restore.sh latest                        # descarga el último en ./restore/<fecha> y verifica checksums
-./restore.sh get 2026-09-24_020000 /tmp/r  # descarga uno en concreto
+./restore.sh latest                        # descarga el último en ./restore/ y comprueba que no esté dañado
+./restore.sh get 2026-09-27_020000 /tmp/r  # descarga uno por fecha (o por nombre de archivo)
 ```
 
-Se descarga exactamente lo que dejaron `db.sh` y `files.sh`. Restaurarlo depende de cómo lo generaste (`mysql < archivo.sql`, `unzip`, `tar -x`, copiar `_data` de vuelta con el contenedor detenido, etc.).
+Luego se extrae (`unzip BackUp_....zip -d destino`). Lo que hay adentro (`db/`, `files/`) es exactamente lo que dejaron `db.sh` y `files.sh`, y se restaura según cómo lo generaste (`mysql < archivo.sql`, `unzip`, `tar -x`, copiar `_data` de vuelta con el contenedor detenido, etc.).
 
 ## Notificaciones
 

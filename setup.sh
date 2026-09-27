@@ -46,8 +46,8 @@ if command -v rclone >/dev/null 2>&1; then
 else
   err "rclone no está instalado. Ejecuta: sudo ./setup.sh --install-rclone"
 fi
-for c in tar gzip sha256sum flock curl; do
-  if command -v "$c" >/dev/null 2>&1; then ok "$c"; else warn "$c no encontrado (opcional salvo tar, gzip y sha256sum)"; fi
+for c in zip tar gzip flock curl; do
+  if command -v "$c" >/dev/null 2>&1; then ok "$c"; else warn "$c no encontrado (zip es necesario si ARCHIVE_FORMAT=zip; flock y curl son opcionales)"; fi
 done
 echo
 

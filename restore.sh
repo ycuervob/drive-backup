@@ -2,13 +2,13 @@
 # =============================================================================
 #  drive-backup · Consultar y descargar backups desde Drive
 #
-#  ./restore.sh list [servidor]                  Lista los backups en Drive
-#  ./restore.sh latest [destino] [servidor]      Descarga el backup más reciente
-#  ./restore.sh get <AAAA-MM-DD_HHMMSS> [destino] [servidor]
+#  ./restore.sh list [servidor]                       Lista los backups en Drive
+#  ./restore.sh latest [destino] [servidor]           Descarga el más reciente
+#  ./restore.sh get <archivo|AAAA-MM-DD_HHMMSS> [destino] [servidor]
 #
-#  Por defecto usa el SERVER_NAME de config.env y descarga en ./restore/<backup>.
-#  Solo DESCARGA y verifica checksums: restaurar la base/archivos es manual
-#  (ver README, sección "Restaurar").
+#  Por defecto usa el SERVER_NAME de config.env y descarga en ./restore/.
+#  Solo DESCARGA el archivo y comprueba que no esté dañado; restaurar la base
+#  o los archivos es manual (depende de cómo los generaron db.sh y files.sh).
 # =============================================================================
 set -Eeuo pipefail
 
@@ -20,43 +20,54 @@ load_config
 
 cmd="${1:-}"; shift || true
 
-base_for() {
+base_for() { printf '%s%s%s' "$REMOTE" "${DRIVE_PATH:+$DRIVE_PATH/}" "${1:-$SERVER_NAME}"; }
+
+list_backups() {
   local server="${1:-$SERVER_NAME}"
-  printf '%s%s%s' "$REMOTE" "${DRIVE_PATH:+$DRIVE_PATH/}" "$server"
+  rclone lsf "$(base_for "$server")" --files-only "${RCLONE_COMMON_FLAGS[@]}" \
+    | grep -E "^${ARCHIVE_PREFIX}_.+_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}\.(zip|tar\.gz)$" \
+    | sort || true
 }
 
 download() {
-  local run_id="$1" dest="${2:-$SCRIPT_DIR/restore/$1}" server="${3:-}"
-  local src; src="$(base_for "$server")/$run_id"
-  log_info "Descargando $src → $dest"
+  local name="$1" dest="${2:-$SCRIPT_DIR/restore}" server="${3:-}"
+  local src; src="$(base_for "$server")/$name"
   mkdir -p "$dest"
-  rclone copy "$src" "$dest" --create-empty-src-dirs --transfers 4 --stats-one-line --stats 30s -v "${RCLONE_COMMON_FLAGS[@]}"
-  if [[ -f "$dest/SHA256SUMS" ]]; then
-    log_info "Verificando checksums ..."
-    (cd "$dest" && sha256sum -c --quiet SHA256SUMS) && log_info "Checksums OK"
-  else
-    log_warn "El backup no trae SHA256SUMS; no se puede verificar"
-  fi
-  log_info "Listo: $dest"
-  [[ -f "$dest/MANIFEST.txt" ]] && cat "$dest/MANIFEST.txt" >&2
-  return 0
+  log_info "Descargando $src → $dest/"
+  rclone copyto "$src" "$dest/$name" --stats-one-line --stats 30s -v "${RCLONE_COMMON_FLAGS[@]}"
+
+  log_info "Comprobando el archivo ..."
+  case "$name" in
+    *.zip)    unzip -tq "$dest/$name" >/dev/null ;;
+    *.tar.gz) tar -tzf "$dest/$name" >/dev/null ;;
+  esac
+  log_info "Archivo OK: $dest/$name ($(human_size "$dest/$name"))"
+  case "$name" in
+    *.zip)    log_info "Para extraerlo: unzip '$dest/$name' -d '$dest/${name%.zip}'" ;;
+    *.tar.gz) log_info "Para extraerlo: mkdir -p '$dest/${name%.tar.gz}' && tar -xzf '$dest/$name' -C '$dest/${name%.tar.gz}'" ;;
+  esac
 }
 
 case "$cmd" in
   list)
     setup_remote
-    rclone lsf "$(base_for "${1:-}")" --dirs-only "${RCLONE_COMMON_FLAGS[@]}" | sed 's#/$##' | sort
+    list_backups "${1:-}"
     ;;
   latest)
     setup_remote
-    last="$(rclone lsf "$(base_for "${2:-}")" --dirs-only "${RCLONE_COMMON_FLAGS[@]}" | sed 's#/$##' | sort | tail -n1)"
+    last="$(list_backups "${2:-}" | tail -n1)"
     [[ -n "$last" ]] || die "No hay backups en $(base_for "${2:-}")"
     download "$last" "${1:-}" "${2:-}"
     ;;
   get)
-    [[ -n "${1:-}" ]] || die "Uso: ./restore.sh get <AAAA-MM-DD_HHMMSS> [destino] [servidor]"
+    [[ -n "${1:-}" ]] || die "Uso: ./restore.sh get <archivo|AAAA-MM-DD_HHMMSS> [destino] [servidor]"
     setup_remote
-    download "$1" "${2:-}" "${3:-}"
+    name="$1"
+    if [[ "$name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$ ]]; then
+      name="$(list_backups "${3:-}" | grep -F "_$1." | head -n1 || true)"
+      [[ -n "$name" ]] || die "No hay un backup con fecha $1"
+    fi
+    download "$name" "${2:-}" "${3:-}"
     ;;
   *)
     sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'

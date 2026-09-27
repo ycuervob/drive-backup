@@ -2,10 +2,10 @@
 # =============================================================================
 #  drive-backup · Orquestador
 #
-#  1. Ejecuta db.sh y files.sh (plantillas ajustadas a cada servidor)
-#  2. Genera SHA256SUMS y MANIFEST.txt
-#  3. Sube la carpeta del backup a Google Drive con rclone
-#  4. Verifica la subida, aplica retención local y remota, y notifica
+#  1. Ejecuta db.sh y files.sh (cada uno deja lo suyo en su carpeta)
+#  2. Empaqueta TODO en UN SOLO archivo:  BackUp_<servidor>_<fecha>.zip
+#  3. Sube ese único archivo a Google Drive con rclone y lo verifica
+#  4. Aplica retención local y remota, y notifica
 #
 #  Uso: ./backup.sh [opciones]      (./backup.sh --help)
 # =============================================================================
@@ -94,7 +94,7 @@ if $TEST_ONLY; then
   echo "drive-backup test $(date)" | rclone rcat "$test_file" "${RCLONE_COMMON_FLAGS[@]}"
   rclone deletefile "$test_file" --drive-use-trash=false
   log_info "Conexión OK. Contenido actual de $REMOTE_BASE:"
-  rclone lsf "$REMOTE_BASE" --dirs-only "${RCLONE_COMMON_FLAGS[@]}" | tail -n 10 >&2 || true
+  rclone lsf "$REMOTE_BASE" --files-only "${RCLONE_COMMON_FLAGS[@]}" | sort | tail -n 10 >&2 || true
   exit 0
 fi
 
@@ -104,13 +104,25 @@ fi
 mkdir -p "$BACKUP_DIR" "$LOG_DIR" 2>/dev/null \
   || die "No se pudo crear $BACKUP_DIR o $LOG_DIR (¿permisos? ejecuta como root o cambia las rutas en config.env)"
 
+case "$ARCHIVE_FORMAT" in
+  zip)    ARCHIVE_EXT="zip";    require_cmd zip ;;
+  tar.gz) ARCHIVE_EXT="tar.gz"; require_cmd tar gzip ;;
+  *) die "ARCHIVE_FORMAT='$ARCHIVE_FORMAT' no válido. Usa: zip | tar.gz" ;;
+esac
+
+# Una sola fecha para todo el backup
 RUN_ID="$(date +%F_%H%M%S)"
-while [[ -e "$BACKUP_DIR/$RUN_ID" ]]; do sleep 1; RUN_ID="$(date +%F_%H%M%S)"; done
-RUN_DIR="$BACKUP_DIR/$RUN_ID"
+archive_name() { printf '%s_%s_%s.%s' "$ARCHIVE_PREFIX" "$SERVER_NAME" "$1" "$ARCHIVE_EXT"; }
+while [[ -e "$BACKUP_DIR/$(archive_name "$RUN_ID")" ]]; do sleep 1; RUN_ID="$(date +%F_%H%M%S)"; done
+
+ARCHIVE_NAME="$(archive_name "$RUN_ID")"
+ARCHIVE="$BACKUP_DIR/$ARCHIVE_NAME"
+WORK_DIR="$BACKUP_DIR/.work_$RUN_ID"          # temporal: se borra al terminar
 LOG_FILE="$LOG_DIR/$RUN_ID.log"
-export RUN_ID RUN_DIR SERVER_NAME
-export DB_OUT_DIR="$RUN_DIR/db"
-export FILES_OUT_DIR="$RUN_DIR/files"
+export RUN_ID SERVER_NAME
+export STAMP="$RUN_ID"
+export DB_OUT_DIR="$WORK_DIR/db"
+export FILES_OUT_DIR="$WORK_DIR/files"
 
 # Todo lo que se imprima (también desde db.sh y files.sh) va a pantalla y al log
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -129,6 +141,7 @@ SUMMARY=()
 
 on_exit() {
   local rc=$?
+  rm -rf -- "$WORK_DIR" "$ARCHIVE.part"
   if [[ -z "$FINAL_STATUS" ]]; then
     log_error "El backup terminó inesperadamente (código $rc)"
     notify "ERROR" "El backup terminó inesperadamente (código $rc). Revisa el log: $LOG_FILE"
@@ -145,7 +158,7 @@ UPLOAD_ENABLED=true
 { $NO_UPLOAD; } && UPLOAD_ENABLED=false
 if $UPLOAD_ENABLED; then
   setup_remote
-  log_info "Destino: $REMOTE_BASE/$RUN_ID"
+  log_info "Destino: $REMOTE_BASE/$ARCHIVE_NAME"
 fi
 
 # Espacio libre
@@ -169,7 +182,7 @@ FAILED_STEPS=()
 run_step() {
   local name="$1" script="$SCRIPT_DIR/$1.sh"
   if [[ ! -f "$script" ]]; then
-    log_error "No existe $script. Ejecuta ./setup.sh para crearlo desde $name.sh.example (cp $name.sh.example $name.sh)"
+    log_error "No existe $script. Créalo con: cp $name.sh.example $name.sh"
     FAILED_STEPS+=("$name"); SUMMARY+=("$name: NO EXISTE"); return 0
   fi
   log_info "---- Ejecutando $name.sh ----"
@@ -189,40 +202,41 @@ if [[ "$ONLY" != "files" ]] && is_true "$ENABLE_DB"; then run_step db; fi
 if [[ "$ONLY" != "db" ]] && is_true "$ENABLE_FILES"; then run_step files; fi
 
 # Quitar db/ o files/ si quedaron vacías (por ejemplo si ENABLE_DB=false)
-find "$RUN_DIR" -mindepth 1 -maxdepth 1 -type d -empty -delete
+find "$WORK_DIR" -mindepth 1 -maxdepth 1 -type d -empty -delete
 
-FILE_COUNT=$(find "$RUN_DIR" -type f | wc -l)
+FILE_COUNT=$(find "$WORK_DIR" -type f | wc -l)
 if [[ "$FILE_COUNT" -eq 0 ]]; then
   FINAL_STATUS="ERROR"
   log_error "No se generó ningún archivo de backup"
-  rmdir "$RUN_DIR" 2>/dev/null || true
   notify "ERROR" "No se generó ningún archivo de backup."$'\n'"$(printf '%s\n' "${SUMMARY[@]}")"$'\n'"Log: $LOG_FILE"
   exit 1
 fi
 
 # -----------------------------------------------------------------------------
-# Paso 2: manifiesto y checksums
+# Paso 2: empaquetar todo en UN SOLO archivo
 # -----------------------------------------------------------------------------
-(
-  cd "$RUN_DIR"
-  find . -type f ! -name SHA256SUMS ! -name MANIFEST.txt ! -name .SHA256SUMS.tmp -printf '%P\0' | sort -z | xargs -0 -r sha256sum > .SHA256SUMS.tmp
-  mv -f .SHA256SUMS.tmp SHA256SUMS
-)
 {
   echo "servidor:   $SERVER_NAME"
   echo "backup:     $RUN_ID"
   echo "fecha:      $(date -R)"
-  echo "tamaño:     $(human_size "$RUN_DIR")"
   echo "pasos:"
   printf '  - %s\n' "${SUMMARY[@]}"
-  echo "archivos:"
-  (cd "$RUN_DIR" && find . -type f ! -name MANIFEST.txt -printf '  %P  (%s bytes)\n' | sort)
-} > "$RUN_DIR/MANIFEST.txt"
+  echo "contenido:"
+  (cd "$WORK_DIR" && find . -type f -printf '  %P  (%s bytes)\n' | sort)
+} > "$WORK_DIR/MANIFEST.txt"
 
-log_info "Backup local listo: $RUN_DIR ($(human_size "$RUN_DIR"), $FILE_COUNT archivos)"
+log_info "Empaquetando en $ARCHIVE_NAME ..."
+if [[ "$ARCHIVE_FORMAT" == "zip" ]]; then
+  (cd "$WORK_DIR" && zip -qry "$ARCHIVE.part" .)
+else
+  tar -czf "$ARCHIVE.part" -C "$WORK_DIR" .
+fi
+mv -f -- "$ARCHIVE.part" "$ARCHIVE"
+rm -rf -- "$WORK_DIR"
+log_info "Backup local listo: $ARCHIVE ($(human_size "$ARCHIVE"))"
 
 # -----------------------------------------------------------------------------
-# Paso 3: subir a Drive
+# Paso 3: subir el archivo a Drive
 # -----------------------------------------------------------------------------
 UPLOAD_OK=false
 if ! $UPLOAD_ENABLED; then
@@ -230,24 +244,26 @@ if ! $UPLOAD_ENABLED; then
 elif [[ ${#FAILED_STEPS[@]} -gt 0 ]] && ! is_true "$UPLOAD_ON_PARTIAL_FAILURE"; then
   log_error "Hubo fallos en: ${FAILED_STEPS[*]}. No se sube (UPLOAD_ON_PARTIAL_FAILURE=false)"
 else
-  DEST="$REMOTE_BASE/$RUN_ID"
-  rclone_flags=("${RCLONE_COMMON_FLAGS[@]}" --transfers "$RCLONE_TRANSFERS" --create-empty-src-dirs --retries 5 --low-level-retries 20 --stats-one-line --stats 1m -v)
+  DEST="$REMOTE_BASE/$ARCHIVE_NAME"
+  rclone_flags=("${RCLONE_COMMON_FLAGS[@]}" --retries 5 --low-level-retries 20 --stats-one-line --stats 1m -v)
   $DRY_RUN && rclone_flags+=(--dry-run)
   # shellcheck disable=SC2206
   [[ -n "${RCLONE_EXTRA_FLAGS:-}" ]] && rclone_flags+=($RCLONE_EXTRA_FLAGS)
 
   log_info "Subiendo a $DEST ..."
   t0=$SECONDS
-  if rclone copy "$RUN_DIR" "$DEST" "${rclone_flags[@]}"; then
+  if rclone copyto "$ARCHIVE" "$DEST" "${rclone_flags[@]}"; then
     UPLOAD_OK=true
     log_info "Subida completada en $((SECONDS - t0))s"
     if is_true "$VERIFY_UPLOAD" && ! $DRY_RUN; then
-      log_info "Verificando checksums en Drive ..."
-      if rclone check "$RUN_DIR" "$DEST" --one-way "${RCLONE_COMMON_FLAGS[@]}"; then
-        log_info "Verificación OK"
+      log_info "Verificando checksum en Drive ..."
+      local_md5="$(md5sum "$ARCHIVE" | awk '{print $1}')"
+      remote_md5="$(rclone md5sum "$DEST" "${RCLONE_COMMON_FLAGS[@]}" 2>/dev/null | awk '{print $1}')"
+      if [[ -n "$remote_md5" && "$local_md5" == "$remote_md5" ]]; then
+        log_info "Verificación OK (md5 $local_md5)"
       else
         UPLOAD_OK=false
-        log_error "La verificación falló: los archivos en Drive no coinciden con los locales"
+        log_error "La verificación falló: local=$local_md5 Drive=${remote_md5:-desconocido}"
       fi
     fi
   else
@@ -257,26 +273,34 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Paso 4: retención
+# Paso 4: retención (se decide por la fecha que va en el nombre del archivo)
 # -----------------------------------------------------------------------------
+# Devuelve la fecha AAAA-MM-DD_HHMMSS si el nombre es un backup de este servidor
+backup_date_of() {
+  local n="$1" pre="${ARCHIVE_PREFIX}_${SERVER_NAME}_"
+  [[ "$n" == "$pre"* ]] || return 1
+  n="${n#"$pre"}"; n="${n%.zip}"; n="${n%.tar.gz}"
+  [[ "$n" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$ ]] || return 1
+  printf '%s' "$n"
+}
+
 # Remota: solo si la subida de hoy salió bien (nunca se borra lo viejo si lo nuevo falló)
 if $UPLOAD_OK && [[ "$REMOTE_RETENTION_DAYS" -gt 0 ]]; then
   log_info "Retención remota: borrando backups de más de $REMOTE_RETENTION_DAYS días en $REMOTE_BASE"
-  # Se decide por el nombre de la carpeta (AAAA-MM-DD_HHMMSS) y se borra la carpeta completa
   cutoff="$(date -d "-${REMOTE_RETENTION_DAYS} days" +%F_%H%M%S)"
-  purge_flags=("${RCLONE_COMMON_FLAGS[@]}")
-  $DRY_RUN && purge_flags+=(--dry-run)
-  if old_dirs="$(rclone lsf "$REMOTE_BASE" --dirs-only "${RCLONE_COMMON_FLAGS[@]}")"; then
-    while IFS= read -r d; do
-      d="${d%/}"
-      [[ "$d" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$ ]] || continue
-      [[ "$d" < "$cutoff" && "$d" != "$RUN_ID" ]] || continue
-      if rclone purge "$REMOTE_BASE/$d" "${purge_flags[@]}"; then
-        log_info "  borrado en Drive: $d"
+  del_flags=("${RCLONE_COMMON_FLAGS[@]}")
+  $DRY_RUN && del_flags+=(--dry-run)
+  if remote_files="$(rclone lsf "$REMOTE_BASE" --files-only "${RCLONE_COMMON_FLAGS[@]}")"; then
+    while IFS= read -r f; do
+      [[ -n "$f" && "$f" != "$ARCHIVE_NAME" ]] || continue
+      d="$(backup_date_of "$f")" || continue
+      [[ "$d" < "$cutoff" ]] || continue
+      if rclone deletefile "$REMOTE_BASE/$f" "${del_flags[@]}"; then
+        log_info "  borrado en Drive: $f"
       else
-        log_warn "  no se pudo borrar en Drive: $d"
+        log_warn "  no se pudo borrar en Drive: $f"
       fi
-    done <<< "$old_dirs"
+    done <<< "$remote_files"
   else
     log_warn "No se pudo listar $REMOTE_BASE para aplicar la retención remota"
   fi
@@ -285,18 +309,24 @@ fi
 # Local: si se subió bien (o no se pidió subir), se limpian los backups viejos
 if ! $DRY_RUN && { $UPLOAD_OK || ! $UPLOAD_ENABLED; }; then
   if [[ "$LOCAL_RETENTION_DAYS" -eq 0 ]] && $UPLOAD_OK; then
-    rm -rf -- "$RUN_DIR"
-    log_info "Retención local: backup local borrado (LOCAL_RETENTION_DAYS=0)"
-  fi
-  if [[ "$LOCAL_RETENTION_DAYS" -gt 0 ]]; then
-    find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9]-*' \
-      -mtime "+$((LOCAL_RETENTION_DAYS - 1))" ! -path "$RUN_DIR" -print -exec rm -rf -- {} + \
-      | sed 's/^/  borrado local: /' || true
+    rm -f -- "$ARCHIVE"
+    log_info "Retención local: copia local borrada (LOCAL_RETENTION_DAYS=0)"
+  elif [[ "$LOCAL_RETENTION_DAYS" -gt 0 ]]; then
+    cutoff_local="$(date -d "-${LOCAL_RETENTION_DAYS} days" +%F_%H%M%S)"
+    for f in "$BACKUP_DIR"/*; do
+      [[ -f "$f" ]] || continue
+      name="$(basename "$f")"
+      [[ "$name" != "$ARCHIVE_NAME" ]] || continue
+      d="$(backup_date_of "$name")" || continue
+      if [[ "$d" < "$cutoff_local" ]]; then rm -f -- "$f"; log_info "  borrado local: $name"; fi
+    done
   fi
 else
   log_warn "No se aplica retención local (la subida no se completó); los backups locales se conservan"
 fi
 
+# Restos de ejecuciones interrumpidas y logs viejos
+find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name '.work_*' -mtime +0 -exec rm -rf -- {} + 2>/dev/null || true
 find "$LOG_DIR" -maxdepth 1 -type f -name '*.log' -mtime "+$LOG_RETENTION_DAYS" -delete 2>/dev/null || true
 
 # -----------------------------------------------------------------------------
@@ -311,13 +341,8 @@ else
   FINAL_STATUS="ERROR"
 fi
 
-MSG="Backup $RUN_ID: $FINAL_STATUS en ${ELAPSED}s"$'\n'"$(printf '%s\n' "${SUMMARY[@]}")"
+MSG="Backup $ARCHIVE_NAME: $FINAL_STATUS en ${ELAPSED}s"$'\n'"$(printf '%s\n' "${SUMMARY[@]}")"
 log_info "===== Resultado: $FINAL_STATUS (${ELAPSED}s) ====="
 notify "$FINAL_STATUS" "$MSG"$'\n'"Log: $LOG_FILE"
-
-# Subir también el log de esta ejecución junto al backup
-if $UPLOAD_OK && ! $DRY_RUN; then
-  rclone copyto "$LOG_FILE" "$REMOTE_BASE/$RUN_ID/backup.log" "${RCLONE_COMMON_FLAGS[@]}" 2>/dev/null || true
-fi
 
 [[ "$FINAL_STATUS" == "OK" ]] && exit 0 || exit 1

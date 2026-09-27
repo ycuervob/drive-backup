@@ -6,8 +6,11 @@
 #  No hay nada fijo: mysqldump, pg_dump, docker exec, copiar una carpeta... lo
 #  que necesites. La única regla:
 #
-#      Todo lo que dejes dentro de  $OUT  se sube a Drive.
-#      (archivos o carpetas, comprimidos o no)
+#      Todo lo que dejes dentro de  $OUT  entra al backup.
+#
+#  Al final, backup.sh empaqueta lo de db.sh + files.sh en UN SOLO archivo
+#  (BackUp_<servidor>_<fecha>.zip) y sube solo ese. Por eso aquí NO hace
+#  falta poner fechas en los nombres ni comprimir (aunque puedes hacerlo).
 #
 #  - Si un comando falla, el script se detiene y backup.sh NO sube nada.
 #  - Las variables de config.env están disponibles ($DB_PASSWORD, etc.).
@@ -22,7 +25,6 @@ load_config
 LOG_TAG="db"
 
 OUT="${DB_OUT_DIR:-$DRIVE_BACKUP_HOME/test-output/db}"   # <- deja aquí tus backups
-STAMP="${RUN_ID:-$(date +%F_%H%M%S)}"                     # fecha para nombrar archivos
 mkdir -p "$OUT"
 
 # =============================================================================
@@ -38,14 +40,14 @@ exit 1   # <- borra esta línea cuando hayas puesto tus comandos
 # -----------------------------------------------------------------------------
 # MYSQL_PWD="$DB_PASSWORD" mysqldump -u "$DB_USER" \
 #   --single-transaction --routines --triggers --all-databases \
-#   | gzip > "$OUT/mysql_$STAMP.sql.gz"
+#   | gzip > "$OUT/mysql.sql.gz"
 
 # -----------------------------------------------------------------------------
 # Ejemplo 2 · mysqldump dentro de un contenedor Docker
 # -----------------------------------------------------------------------------
 # docker exec -e MYSQL_PWD="$DB_PASSWORD" mi_contenedor_mysql \
 #   mysqldump -u root --single-transaction --routines --all-databases \
-#   | gzip > "$OUT/mysql_docker_$STAMP.sql.gz"
+#   | gzip > "$OUT/mysql_docker.sql.gz"
 #
 # (docker compose:  docker compose -f /ruta/docker-compose.yml exec -T db mysqldump ...)
 
@@ -57,7 +59,7 @@ exit 1   # <- borra esta línea cuando hayas puesto tus comandos
 #
 # docker stop mi_postgres
 # trap 'docker start mi_postgres' EXIT            # se vuelve a encender aunque algo falle
-# tar -czf "$OUT/postgres_data_$STAMP.tar.gz" -C /var/lib/docker/volumes/mi_volumen _data
+# tar -czf "$OUT/postgres_data.tar.gz" -C /var/lib/docker/volumes/mi_volumen _data
 #
 # ...o si prefieres subir la carpeta tal cual, sin comprimir:
 # cp -a /var/lib/docker/volumes/mi_volumen/_data "$OUT/postgres_data"
@@ -65,15 +67,15 @@ exit 1   # <- borra esta línea cuando hayas puesto tus comandos
 # -----------------------------------------------------------------------------
 # Ejemplo 4 · pg_dump (normal o dentro de Docker)
 # -----------------------------------------------------------------------------
-# PGPASSWORD="$DB_PASSWORD" pg_dump -h localhost -U "$DB_USER" -Fc mibd > "$OUT/mibd_$STAMP.dump"
-# docker exec mi_postgres pg_dump -U postgres -Fc mibd > "$OUT/mibd_$STAMP.dump"
+# PGPASSWORD="$DB_PASSWORD" pg_dump -h localhost -U "$DB_USER" -Fc mibd > "$OUT/mibd.dump"
+# docker exec mi_postgres pg_dump -U postgres -Fc mibd > "$OUT/mibd.dump"
 
 # -----------------------------------------------------------------------------
 # Ejemplo 5 · varias bases, un archivo por cada una
 # -----------------------------------------------------------------------------
 # for db in wordpress moodle; do
 #   MYSQL_PWD="$DB_PASSWORD" mysqldump -u "$DB_USER" --single-transaction "$db" \
-#     | gzip > "$OUT/${db}_$STAMP.sql.gz"
+#     | gzip > "$OUT/${db}.sql.gz"
 #   log_info "OK $db"
 # done
 

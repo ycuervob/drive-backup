@@ -66,11 +66,13 @@ load_config() {
 
   # Valores por defecto
   : "${SERVER_NAME:=$(hostname -s)}"
-  : "${BACKUP_DIR:=/var/backups/drive-backup}"
+  : "${BACKUP_DIR:=/var/log/drive-backup}"
   : "${LOG_DIR:=/var/log/drive-backup}"
   : "${LOCAL_RETENTION_DAYS:=3}"
   : "${LOG_RETENTION_DAYS:=30}"
   : "${MIN_FREE_MB:=0}"
+  : "${ARCHIVE_FORMAT:=zip}"
+  : "${ARCHIVE_PREFIX:=BackUp}"
   : "${ENABLE_DB:=true}"
   : "${ENABLE_FILES:=true}"
   : "${UPLOAD_ON_PARTIAL_FAILURE:=false}"
@@ -80,7 +82,6 @@ load_config() {
   : "${DRIVE_USE_TRASH:=false}"
   : "${DRIVE_SCOPE:=drive}"
   : "${RCLONE_REMOTE:=gdrive}"
-  : "${RCLONE_TRANSFERS:=4}"
   : "${VERIFY_UPLOAD:=true}"
   : "${NOTIFY_ON:=error}"
   : "${NOTIFY_WEBHOOK_URL:=}" "${NOTIFY_EMAIL:=}" "${RCLONE_BWLIMIT:=}" "${RCLONE_EXTRA_FLAGS:=}"
