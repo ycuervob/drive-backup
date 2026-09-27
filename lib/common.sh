@@ -85,6 +85,7 @@ load_config() {
   : "${VERIFY_UPLOAD:=true}"
   : "${NOTIFY_ON:=error}"
   : "${NOTIFY_WEBHOOK_URL:=}" "${NOTIFY_EMAIL:=}" "${RCLONE_BWLIMIT:=}" "${RCLONE_EXTRA_FLAGS:=}"
+  : "${SMTP_URL:=smtps://smtp.gmail.com:465}" "${SMTP_USER:=}" "${SMTP_PASSWORD:=}" "${SMTP_FROM:=}"
   : "${DRIVE_CLIENT_ID:=}" "${DRIVE_CLIENT_SECRET:=}" "${DRIVE_TOKEN:=}" "${DRIVE_SERVICE_ACCOUNT_FILE:=}"
   : "${DRIVE_TEAM_DRIVE:=}" "${DRIVE_ROOT_FOLDER_ID:=}" "${RCLONE_CONFIG_FILE:=}"
 

@@ -24,6 +24,7 @@ Uso: $(basename "$0") [opciones]
       --no-upload        Genera el backup local pero no lo sube a Drive
       --dry-run          Genera el backup y simula la subida/borrados en Drive
       --test             Solo prueba la conexión con Drive (escribe y borra un archivo)
+      --test-email       Solo envía un correo de prueba a NOTIFY_EMAIL
   -h, --help             Muestra esta ayuda
 EOF
 }
@@ -31,7 +32,7 @@ EOF
 # -----------------------------------------------------------------------------
 # Argumentos
 # -----------------------------------------------------------------------------
-ONLY=""; NO_UPLOAD=false; DRY_RUN=false; TEST_ONLY=false
+ONLY=""; NO_UPLOAD=false; DRY_RUN=false; TEST_ONLY=false; TEST_EMAIL=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -c|--config)  CONFIG_FILE="$(readlink -f "$2")"; export CONFIG_FILE; shift 2 ;;
@@ -40,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --no-upload)  NO_UPLOAD=true; shift ;;
     --dry-run)    DRY_RUN=true; shift ;;
     --test)       TEST_ONLY=true; shift ;;
+    --test-email) TEST_EMAIL=true; shift ;;
     -h|--help)    usage; exit 0 ;;
     *) echo "Opción desconocida: $1" >&2; usage; exit 2 ;;
   esac
@@ -58,6 +60,40 @@ json_escape() {
   printf '%s' "$s"
 }
 
+# Envía un correo por SMTP con curl (usuario/contraseña de config.env).
+# Uso: send_email "asunto" "cuerpo"
+send_email() {
+  local subject="$1" body="$2"
+  local from="${SMTP_FROM:-$SMTP_USER}"
+  local rcpts=() r
+  IFS=', ' read -r -a rcpts <<< "$NOTIFY_EMAIL"
+
+  local tmp_msg tmp_cfg
+  tmp_msg="$(mktemp)"; tmp_cfg="$(mktemp)"; chmod 600 "$tmp_msg" "$tmp_cfg"
+  {
+    printf 'From: drive-backup <%s>\r\n' "$from"
+    printf 'To: %s\r\n' "$NOTIFY_EMAIL"
+    printf 'Subject: =?UTF-8?B?%s?=\r\n' "$(printf '%s' "$subject" | base64 -w0)"
+    printf 'Date: %s\r\n' "$(LC_ALL=C date -R)"
+    printf 'MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n'
+    printf '%s\n' "$body" | sed 's/$/\r/'
+  } > "$tmp_msg"
+  # Usuario y contraseña en un archivo temporal (no aparecen en 'ps')
+  printf 'user = "%s:%s"\n' "${SMTP_USER//\"/\\\"}" "${SMTP_PASSWORD//\"/\\\"}" > "$tmp_cfg"
+
+  local args=(-sS -m 30 --ssl-reqd --url "$SMTP_URL" -K "$tmp_cfg" --mail-from "$from" --upload-file "$tmp_msg")
+  for r in "${rcpts[@]}"; do [[ -n "$r" ]] && args+=(--mail-rcpt "$r"); done
+
+  local rc=0 err
+  err="$(curl "${args[@]}" 2>&1)" || rc=$?
+  rm -f -- "$tmp_msg" "$tmp_cfg"
+  if [[ $rc -ne 0 ]]; then
+    log_warn "No se pudo enviar el correo a $NOTIFY_EMAIL: $err"
+    return 1
+  fi
+  return 0
+}
+
 notify() {
   local status="$1" message="$2"
   case "$NOTIFY_ON" in
@@ -74,14 +110,30 @@ notify() {
       || log_warn "No se pudo enviar la notificación al webhook"
   fi
   if [[ -n "${NOTIFY_EMAIL:-}" ]]; then
-    if command -v mail >/dev/null 2>&1; then
-      printf '%s\n\nLog: %s\n' "$message" "${LOG_FILE:-}" | mail -s "$subject" "$NOTIFY_EMAIL" \
+    if [[ -n "${SMTP_USER:-}" ]]; then
+      send_email "$subject" "$message" || true
+    elif command -v mail >/dev/null 2>&1; then
+      printf '%s\n' "$message" | mail -s "$subject" "$NOTIFY_EMAIL" \
         || log_warn "No se pudo enviar el correo de notificación"
     else
-      log_warn "NOTIFY_EMAIL está configurado pero no existe el comando 'mail'"
+      log_warn "NOTIFY_EMAIL está configurado pero falta SMTP_USER/SMTP_PASSWORD en config.env (y no existe el comando 'mail')"
     fi
   fi
 }
+
+# -----------------------------------------------------------------------------
+# Modo --test-email: enviar un correo de prueba
+# -----------------------------------------------------------------------------
+if $TEST_EMAIL; then
+  [[ -n "$NOTIFY_EMAIL" ]] || die "NOTIFY_EMAIL está vacío en config.env"
+  [[ -n "$SMTP_USER" && -n "$SMTP_PASSWORD" ]] || die "Faltan SMTP_USER y/o SMTP_PASSWORD en config.env"
+  log_info "Enviando correo de prueba a $NOTIFY_EMAIL vía $SMTP_URL como $SMTP_USER ..."
+  if send_email "[drive-backup] $SERVER_NAME: prueba de correo" "Si lees esto, las notificaciones por correo de drive-backup funcionan."$'\n'"Servidor: $SERVER_NAME"$'\n'"Fecha: $(date)"; then
+    log_info "Correo enviado. Revisa la bandeja de entrada (y spam)."
+    exit 0
+  fi
+  exit 1
+fi
 
 # -----------------------------------------------------------------------------
 # Modo --test: probar conexión con Drive

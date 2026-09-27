@@ -114,6 +114,7 @@ rclone renueva el token solo. La copia renovada se guarda en `.rclone.conf`, den
 
 ```bash
 ./backup.sh --test            # escribe y borra un archivo de prueba en Drive
+./backup.sh --test-email      # envía un correo de prueba
 ./db.sh                       # prueba solo las bases  → ./test-output/db
 ./files.sh                    # prueba solo archivos   → ./test-output/files
 ./backup.sh --dry-run         # flujo completo, simula la subida y los borrados
@@ -184,12 +185,27 @@ Luego se extrae (`unzip BackUp_....zip -d destino`). Lo que hay adentro (`db/`, 
 
 ## Notificaciones
 
-- **Webhook** (`NOTIFY_WEBHOOK_URL`): envía un POST JSON `{"text": "...", "content": "..."}`. Funciona con Google Chat, Slack y Discord.
-- **Correo** (`NOTIFY_EMAIL`): requiere el comando `mail` configurado en el servidor.
 - **Cuándo** (`NOTIFY_ON`): `always`, `error` o `never`.
+- **Webhook** (`NOTIFY_WEBHOOK_URL`): envía un POST JSON `{"text": "...", "content": "..."}`. Funciona con Google Chat, Slack y Discord.
+- **Correo por SMTP** (recomendado): `backup.sh` lo envía directo con `curl`, sin postfix ni `mail`.
+
+```bash
+NOTIFY_EMAIL="tu_correo@unal.edu.co"          # uno o varios, separados por coma
+SMTP_URL="smtps://smtp.gmail.com:465"
+SMTP_USER="cuenta_que_envia@unal.edu.co"
+SMTP_PASSWORD='abcdefghijklmnop'              # contraseña de aplicación de Google, sin espacios
+```
+
+Con Gmail o Google Workspace, `SMTP_PASSWORD` es una **contraseña de aplicación** ([myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)), no la contraseña normal. Para probarlo:
+
+```bash
+sudo ./backup.sh --test-email
+```
+
+Si `SMTP_USER` queda vacío, se intenta con el comando `mail` del servidor.
 
 ## Seguridad
 
-- `config.env` guarda el token de Drive y las contraseñas de la base de datos. Mantenlo en `chmod 600` y **nunca lo subas a git** (ya está en `.gitignore`).
+- `config.env` guarda el token de Drive, las contraseñas de la base de datos y la del correo. Mantenlo en `chmod 600` y **nunca lo subas a git** (ya está en `.gitignore`).
 - El token da acceso a todo el Drive de la cuenta. Lo mejor es usar una cuenta dedicada a backups o una Unidad compartida.
 - Si necesitas cifrar los backups en Drive, crea un remote `crypt` con `rclone config` y usa `DRIVE_AUTH="rclone_remote"` apuntando a él.
