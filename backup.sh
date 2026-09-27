@@ -204,13 +204,30 @@ if [[ "$ONLY" != "db" ]] && is_true "$ENABLE_FILES"; then run_step files; fi
 # Quitar db/ o files/ si quedaron vacías (por ejemplo si ENABLE_DB=false)
 find "$WORK_DIR" -mindepth 1 -maxdepth 1 -type d -empty -delete
 
-FILE_COUNT=$(find "$WORK_DIR" -type f | wc -l)
-if [[ "$FILE_COUNT" -eq 0 ]]; then
+# Lo que dejaron db.sh y files.sh (archivos, carpetas o enlaces "ln -s")
+mapfile -t ENTRIES < <(cd "$WORK_DIR" && find . -mindepth 2 -maxdepth 2 -printf '%P\n' | sort)
+if [[ ${#ENTRIES[@]} -eq 0 ]]; then
   FINAL_STATUS="ERROR"
   log_error "No se generó ningún archivo de backup"
   notify "ERROR" "No se generó ningún archivo de backup."$'\n'"$(printf '%s\n' "${SUMMARY[@]}")"$'\n'"Log: $LOG_FILE"
   exit 1
 fi
+
+# Enlaces (ln -s) dejados en $OUT:
+#  - a un archivo suelto  -> se reemplaza por una copia (es pequeño)
+#  - a una carpeta        -> se mete su CONTENIDO directo al archivo final, sin copiarlo antes.
+# Los enlaces que haya DENTRO de esas carpetas se guardan como enlaces (no se siguen),
+# así se evitan ciclos infinitos.
+for e in "${ENTRIES[@]}"; do
+  p="$WORK_DIR/$e"
+  [[ -L "$p" ]] || continue
+  if [[ ! -e "$p" ]]; then
+    log_error "El enlace $e apunta a algo que no existe: $(readlink "$p")"
+    FAILED_STEPS+=("enlace:$e"); SUMMARY+=("enlace roto: $e"); rm -f -- "$p"
+  elif [[ -f "$p" ]]; then
+    cp -L --remove-destination -- "$p" "$p.tmp" && mv -f -- "$p.tmp" "$p"
+  fi
+done
 
 # -----------------------------------------------------------------------------
 # Paso 2: empaquetar todo en UN SOLO archivo
@@ -222,14 +239,38 @@ fi
   echo "pasos:"
   printf '  - %s\n' "${SUMMARY[@]}"
   echo "contenido:"
-  (cd "$WORK_DIR" && find . -type f -printf '  %P  (%s bytes)\n' | sort)
+  for e in "${ENTRIES[@]}"; do
+    p="$WORK_DIR/$e"
+    [[ -e "$p" ]] || continue
+    size="$(du -sh --dereference-args -- "$p" 2>/dev/null | cut -f1)"
+    if [[ -L "$p" ]]; then echo "  $e  ($size, desde $(readlink -f "$p"))"; else echo "  $e  ($size)"; fi
+  done
 } > "$WORK_DIR/MANIFEST.txt"
+
+# Lista de todo lo que entra al archivo. Las carpetas enlazadas se recorren
+# (find -H sigue solo el enlace de partida); dentro, los enlaces quedan como enlaces.
+LIST_FILE="$WORK_DIR/.filelist"
+(
+  cd "$WORK_DIR"
+  echo "MANIFEST.txt"
+  for d in db files; do [[ -d "$d" ]] && echo "$d"; done
+  for e in "${ENTRIES[@]}"; do
+    [[ -e "$e" ]] || continue
+    if [[ -L "$e" && -d "$e" ]]; then
+      find -H "$e/" -mindepth 1
+    else
+      find "$e"
+    fi
+  done
+) > "$LIST_FILE"
 
 log_info "Empaquetando en $ARCHIVE_NAME ..."
 if [[ "$ARCHIVE_FORMAT" == "zip" ]]; then
-  (cd "$WORK_DIR" && zip -qry "$ARCHIVE.part" .)
+  # -y: los enlaces internos se guardan como enlaces; -@: lee la lista de archivos
+  (cd "$WORK_DIR" && zip -qy "$ARCHIVE.part" -@ < "$LIST_FILE")
 else
-  tar -czf "$ARCHIVE.part" -C "$WORK_DIR" .
+  tar -czf "$ARCHIVE.part" -C "$WORK_DIR" --no-recursion -T "$LIST_FILE" \
+    --warning=no-file-changed --warning=no-file-removed || [[ $? -eq 1 ]]
 fi
 mv -f -- "$ARCHIVE.part" "$ARCHIVE"
 rm -rf -- "$WORK_DIR"

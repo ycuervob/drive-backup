@@ -35,7 +35,17 @@ exit 1   # <- borra esta línea cuando hayas puesto tus comandos
 
 
 # -----------------------------------------------------------------------------
-# Ejemplo 1 · copiar la carpeta y subirla tal cual (sin comprimir)
+# Ejemplo 1 · RECOMENDADO para carpetas grandes: enlazar en vez de copiar
+# -----------------------------------------------------------------------------
+# backup.sh mete el contenido real de la carpeta en el archivo final, sin copiarla
+# ni comprimirla antes. Así no se necesita espacio extra ni se comprime dos veces.
+# (Los enlaces que haya DENTRO de la carpeta se guardan como enlaces.)
+#
+# ln -s /var/www/html "$OUT/html"
+# ln -s /etc/nginx    "$OUT/nginx"
+
+# -----------------------------------------------------------------------------
+# Ejemplo 1b · copiar la carpeta tal cual (ocupa espacio extra mientras se arma el backup)
 # -----------------------------------------------------------------------------
 # cp -a /var/www/html "$OUT/html"
 

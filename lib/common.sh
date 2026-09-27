@@ -66,8 +66,8 @@ load_config() {
 
   # Valores por defecto
   : "${SERVER_NAME:=$(hostname -s)}"
-  : "${BACKUP_DIR:=/var/log/drive-backup}"
-  : "${LOG_DIR:=/var/log/drive-backup}"
+  : "${BACKUP_DIR:=$DRIVE_BACKUP_HOME/backups}"
+  : "${LOG_DIR:=$DRIVE_BACKUP_HOME/logs}"
   : "${LOCAL_RETENTION_DAYS:=3}"
   : "${LOG_RETENTION_DAYS:=30}"
   : "${MIN_FREE_MB:=0}"

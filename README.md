@@ -51,7 +51,7 @@ Backups/
 - `ARCHIVE_FORMAT` elige el formato del archivo final: `zip` (por defecto) o `tar.gz`.
 - `ARCHIVE_PREFIX` cambia el prefijo del nombre (`BackUp` por defecto).
 - Por defecto todo queda dentro del repo: `backups/` (archivo final) y `logs/`. La carpeta temporal se borra siempre.
-- **Espacio:** mientras se arma, conviven la carpeta temporal y el zip final, así que necesitas ~2 veces el tamaño del backup libre en el disco de `BACKUP_DIR`. Ajusta `MIN_FREE_MB` para que no arranque si no hay espacio.
+- **Espacio:** lo que `db.sh`/`files.sh` copian a `$OUT` convive un rato con el zip final. Para carpetas grandes usa `ln -s /ruta "$OUT/nombre"`: `backup.sh` mete su contenido directo al zip sin copiarlo antes, y el espacio necesario baja a ~1 vez el tamaño del backup. Ajusta `MIN_FREE_MB` para que no arranque si no hay espacio.
 
 Medidas de seguridad:
 
@@ -150,7 +150,10 @@ cp -a /var/lib/docker/volumes/pg_data/_data "$OUT/postgres_data"
 ```
 
 ```bash
-# files.sh: subir la carpeta tal cual
+# files.sh: RECOMENDADO para carpetas grandes: enlazar (no ocupa espacio extra)
+ln -s /var/www/html "$OUT/html"
+
+# files.sh: copiar la carpeta tal cual
 cp -a /var/www/html "$OUT/html"
 
 # files.sh: zip

@@ -9,6 +9,8 @@ files.sh
 
 # Salidas locales
 test-output/
+backups/
+logs/
 restore/
 *.log
 *.part
