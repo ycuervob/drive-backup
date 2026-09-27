@@ -50,7 +50,8 @@ Backups/
 
 - `ARCHIVE_FORMAT` elige el formato del archivo final: `zip` (por defecto) o `tar.gz`.
 - `ARCHIVE_PREFIX` cambia el prefijo del nombre (`BackUp` por defecto).
-- La carpeta temporal se borra siempre. En local solo queda el archivo final, en `BACKUP_DIR`.
+- Por defecto todo queda dentro del repo: `backups/` (archivo final) y `logs/`. La carpeta temporal se borra siempre.
+- **Espacio:** mientras se arma, conviven la carpeta temporal y el zip final, así que necesitas ~2 veces el tamaño del backup libre en el disco de `BACKUP_DIR`. Ajusta `MIN_FREE_MB` para que no arranque si no hay espacio.
 
 Medidas de seguridad:
 
