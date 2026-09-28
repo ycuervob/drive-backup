@@ -3,7 +3,7 @@
 #  drive-backup · Orquestador
 #
 #  1. Ejecuta db.sh y files.sh (cada uno deja lo suyo en su carpeta)
-#  2. Empaqueta TODO en UN SOLO archivo:  BackUp_<servidor>_<fecha>.zip
+#  2. Empaqueta TODO en UN SOLO archivo:  BackUp_<servidor>_<fecha>.zip|.tar.gz|.tar
 #  3. Sube ese único archivo a Google Drive con rclone y lo verifica
 #  4. Aplica retención local y remota, y notifica
 #
@@ -159,7 +159,8 @@ mkdir -p "$BACKUP_DIR" "$LOG_DIR" 2>/dev/null \
 case "$ARCHIVE_FORMAT" in
   zip)    ARCHIVE_EXT="zip";    require_cmd zip ;;
   tar.gz) ARCHIVE_EXT="tar.gz"; require_cmd tar gzip ;;
-  *) die "ARCHIVE_FORMAT='$ARCHIVE_FORMAT' no válido. Usa: zip | tar.gz" ;;
+  tar)    ARCHIVE_EXT="tar";    require_cmd tar ;;
+  *) die "ARCHIVE_FORMAT='$ARCHIVE_FORMAT' no válido. Usa: zip | tar.gz | tar" ;;
 esac
 
 # Una sola fecha para todo el backup
@@ -321,8 +322,12 @@ if [[ "$ARCHIVE_FORMAT" == "zip" ]]; then
   # -y: los enlaces internos se guardan como enlaces; -@: lee la lista de archivos
   (cd "$WORK_DIR" && zip -qy "$ARCHIVE.part" -@ < "$LIST_FILE")
 else
-  tar -czf "$ARCHIVE.part" -C "$WORK_DIR" --no-recursion -T "$LIST_FILE" \
-    --warning=no-file-changed --warning=no-file-removed || [[ $? -eq 1 ]]
+  # tar conserva permisos, dueño, enlaces y atributos extendidos (xattrs/ACL),
+  # p. ej. los metadatos que Supabase Storage guarda en cada objeto.
+  tar_opts=(--xattrs --xattrs-include='*' --acls)
+  [[ "$ARCHIVE_FORMAT" == "tar.gz" ]] && tar_opts+=(-z)
+  tar -cf "$ARCHIVE.part" "${tar_opts[@]}" -C "$WORK_DIR" --no-recursion -T "$LIST_FILE" \
+    --warning=no-file-changed --warning=no-file-removed --warning=no-xattr-write || [[ $? -eq 1 ]]
 fi
 mv -f -- "$ARCHIVE.part" "$ARCHIVE"
 rm -rf -- "$WORK_DIR"
@@ -372,7 +377,7 @@ fi
 backup_date_of() {
   local n="$1" pre="${ARCHIVE_PREFIX}_${SERVER_NAME}_"
   [[ "$n" == "$pre"* ]] || return 1
-  n="${n#"$pre"}"; n="${n%.zip}"; n="${n%.tar.gz}"
+  n="${n#"$pre"}"; n="${n%.zip}"; n="${n%.tar.gz}"; n="${n%.tar}"
   [[ "$n" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$ ]] || return 1
   printf '%s' "$n"
 }

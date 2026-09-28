@@ -48,7 +48,13 @@ Backups/
     └── BackUp_serv_fac_ciencias_2026-09-27_020000.zip
 ```
 
-- `ARCHIVE_FORMAT` elige el formato del archivo final: `zip` (por defecto) o `tar.gz`.
+- `ARCHIVE_FORMAT` elige el formato del archivo final:
+  - `zip` (por defecto): compatible con todo, pero **no** guarda dueño ni atributos extendidos.
+  - `tar.gz`: comprimido; guarda permisos, dueño, enlaces, ACL y **xattrs**.
+  - `tar`: igual que `tar.gz` pero sin comprimir.
+
+  Usa `tar` o `tar.gz` cuando los archivos tengan metadatos en atributos extendidos, como **Supabase Storage**, que guarda `content-type`, `etag`, etc. en xattrs. Con `zip` esos metadatos se pierden. Para restaurarlos, extrae como root con:
+  `tar --xattrs --xattrs-include='*' --acls -xpf BackUp_....tar -C destino`
 - `ARCHIVE_PREFIX` cambia el prefijo del nombre (`BackUp` por defecto).
 - Por defecto todo queda dentro del repo: `backups/` (archivo final) y `logs/`. La carpeta temporal se borra siempre.
 - **Espacio:** lo que `db.sh`/`files.sh` copian a `$OUT` convive un rato con el zip final. Para carpetas grandes usa `ln -s /ruta "$OUT/nombre"`: `backup.sh` mete su contenido directo al zip sin copiarlo antes, y el espacio necesario baja a ~1 vez el tamaño del backup. Ajusta `MIN_FREE_MB` para que no arranque si no hay espacio.

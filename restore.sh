@@ -25,7 +25,7 @@ base_for() { printf '%s%s%s' "$REMOTE" "${DRIVE_PATH:+$DRIVE_PATH/}" "${1:-$SERV
 list_backups() {
   local server="${1:-$SERVER_NAME}"
   rclone lsf "$(base_for "$server")" --files-only "${RCLONE_COMMON_FLAGS[@]}" \
-    | grep -E "^${ARCHIVE_PREFIX}_.+_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}\.(zip|tar\.gz)$" \
+    | grep -E "^${ARCHIVE_PREFIX}_.+_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}\.(zip|tar\.gz|tar)$" \
     | sort || true
 }
 
@@ -40,11 +40,13 @@ download() {
   case "$name" in
     *.zip)    unzip -tq "$dest/$name" >/dev/null ;;
     *.tar.gz) tar -tzf "$dest/$name" >/dev/null ;;
+    *.tar)    tar -tf  "$dest/$name" >/dev/null ;;
   esac
   log_info "Archivo OK: $dest/$name ($(human_size "$dest/$name"))"
   case "$name" in
     *.zip)    log_info "Para extraerlo: unzip '$dest/$name' -d '$dest/${name%.zip}'" ;;
-    *.tar.gz) log_info "Para extraerlo: mkdir -p '$dest/${name%.tar.gz}' && tar -xzf '$dest/$name' -C '$dest/${name%.tar.gz}'" ;;
+    *.tar.gz) log_info "Para extraerlo (como root, conserva permisos y xattrs): mkdir -p '$dest/${name%.tar.gz}' && tar --xattrs --xattrs-include='*' --acls -xzpf '$dest/$name' -C '$dest/${name%.tar.gz}'" ;;
+    *.tar)    log_info "Para extraerlo (como root, conserva permisos y xattrs): mkdir -p '$dest/${name%.tar}' && tar --xattrs --xattrs-include='*' --acls -xpf '$dest/$name' -C '$dest/${name%.tar}'" ;;
   esac
 }
 
