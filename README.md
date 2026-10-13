@@ -82,10 +82,10 @@ sudo nano db.sh files.sh             # tus comandos de backup
 
 El servidor no tiene navegador, así que el token se genera en tu computador.
 
-**Opción A (recomendada): en tu Mac**
+**Opción A (recomendada): en tu computador**
 
 ```bash
-brew install rclone
+# Instala rclone en tu computador: https://rclone.org/install/
 rclone authorize "drive"
 # Se abre el navegador, inicias sesión y la terminal imprime un JSON:
 # {"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//0g...","expiry":"..."}
@@ -101,12 +101,12 @@ DRIVE_TOKEN='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1/
 Si configuraste `DRIVE_CLIENT_ID` y `DRIVE_CLIENT_SECRET`, genera el token con esos mismos valores:
 `rclone authorize "drive" "CLIENT_ID" "CLIENT_SECRET"`.
 
-**Opción B: túnel SSH, sin instalar nada en el Mac**
+**Opción B: túnel SSH, sin instalar nada en tu computador**
 
 ```bash
 ssh -L 53682:localhost:53682 usuario@servidor
 rclone authorize "drive" --auth-no-open-browser
-# Abre en el navegador del Mac la URL que imprime (http://127.0.0.1:53682/auth?...)
+# Abre en el navegador de tu computador la URL que imprime (http://127.0.0.1:53682/auth?...)
 ```
 
 **Otras formas de autenticarse**
@@ -196,9 +196,9 @@ Luego se extrae (`unzip BackUp_....zip -d destino`). Lo que hay adentro (`db/`, 
 - **Correo por SMTP** (recomendado): `backup.sh` lo envía directo con `curl`, sin postfix ni `mail`.
 
 ```bash
-NOTIFY_EMAIL="tu_correo@unal.edu.co"          # uno o varios, separados por coma
+NOTIFY_EMAIL="tu_correo@ejemplo.com"          # uno o varios, separados por coma
 SMTP_URL="smtps://smtp.gmail.com:465"
-SMTP_USER="cuenta_que_envia@unal.edu.co"
+SMTP_USER="cuenta_que_envia@ejemplo.com"
 SMTP_PASSWORD='abcdefghijklmnop'              # contraseña de aplicación de Google, sin espacios
 ```
 
