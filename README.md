@@ -43,9 +43,9 @@ Resultado en Drive:
 
 ```
 Backups/
-└── serv_fac_ciencias/
-    ├── BackUp_serv_fac_ciencias_2026-09-26_020000.zip
-    └── BackUp_serv_fac_ciencias_2026-09-27_020000.zip
+└── servidor1/
+    ├── BackUp_servidor1_2026-09-26_020000.zip
+    └── BackUp_servidor1_2026-09-27_020000.zip
 ```
 
 - `ARCHIVE_FORMAT` elige el formato del archivo final:
