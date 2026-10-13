@@ -2,6 +2,8 @@
 
 Backups de bases de datos y archivos de un servidor Linux, subidos a **Google Drive** con [rclone](https://rclone.org).
 
+Google Drive es solo el ejemplo. Como la subida la hace rclone, funciona con cualquier servicio que rclone soporte (OneDrive, Dropbox, S3, Backblaze B2, SFTP, otro servidor...). Ver [Usar otro servicio en vez de Google Drive](#usar-otro-servicio-en-vez-de-google-drive).
+
 Se clona en cada servidor, se llena `config.env` y se escriben **tus propios comandos** en `db.sh` y `files.sh`. Pueden ser un `mysqldump`, un `docker exec`, un `cp` de la carpeta `_data`, un `zip -r`, un `tar` o lo que ese servidor necesite. Lo demás es igual en todos: subida, verificación, retención, logs y notificaciones.
 
 ```
@@ -113,6 +115,23 @@ rclone authorize "drive" --auth-no-open-browser
 
 - `DRIVE_AUTH="service_account"`: usa un JSON de cuenta de servicio. Solo sirve con **Unidades compartidas** (`DRIVE_TEAM_DRIVE`), porque las cuentas de servicio no tienen espacio propio.
 - `DRIVE_AUTH="rclone_remote"`: usa un remote que ya creaste con `rclone config`.
+
+### Usar otro servicio en vez de Google Drive
+
+rclone soporta [más de 70 servicios](https://rclone.org/overview/): OneDrive, Dropbox, S3, Backblaze B2, SFTP, WebDAV, entre otros. Para usar cualquiera de ellos:
+
+1. Crea el remote con `rclone config`, como el usuario que ejecuta el backup (root si usas `sudo`).
+2. En `config.env`:
+
+   ```bash
+   DRIVE_AUTH="rclone_remote"
+   RCLONE_REMOTE="mi_remote"       # el nombre que le diste en rclone config
+   DRIVE_PATH="Backups"            # carpeta (o bucket/carpeta) dentro de ese remote
+   ```
+
+3. Prueba con `./backup.sh --test`.
+
+Las variables `DRIVE_*` mantienen ese nombre, pero sirven para cualquier remote. Las opciones exclusivas de Drive (`DRIVE_USE_TRASH`, `DRIVE_TEAM_DRIVE`...) simplemente no aplican. Si el servicio no calcula MD5, pon `VERIFY_UPLOAD=false`.
 
 rclone renueva el token solo. La copia renovada se guarda en `.rclone.conf`, dentro del repo y con permisos 600. Ese archivo se regenera únicamente cuando cambias `config.env`.
 
